@@ -1,0 +1,31 @@
+name: Publicar StreamPlay
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar projeto
+        uses: actions/checkout@v4
+
+      - name: Preparar arquivos
+        run: |
+          rm -rf public
+          mkdir -p public
+          unzip -o app/StreamPlay-2.0-FINAL.zip -d public
+
+      - name: Publicar no GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy
+        uses: actions/deploy-pages@v4
