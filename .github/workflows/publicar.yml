@@ -4,9 +4,12 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 jobs:
   publicar:
@@ -22,10 +25,13 @@ jobs:
           mkdir -p public
           unzip -o app/StreamPlay-2.0-FINAL.zip -d public
 
-      - name: Publicar no GitHub Pages
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Preparar publicação
         uses: actions/upload-pages-artifact@v3
         with:
-          path: public
+          path: ./public
 
-      - name: Deploy
+      - name: Publicar no GitHub Pages
         uses: actions/deploy-pages@v4
