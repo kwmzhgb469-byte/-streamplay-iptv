@@ -1,176 +1,44 @@
 import { createClient } from '@supabase/supabase-js'
 import Hls from 'hls.js'
-import './style.css'
 
-const url=import.meta.env.VITE_SUPABASE_URL, key=import.meta.env.VITE_SUPABASE_ANON_KEY
-const online=!!(url&&key), db=online?createClient(url,key):null
-const demo=[{id:'demo-1',name:'Teste HLS',group_name:'Demonstração',logo:'',url:'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'}]
-let s={user:null,channels:[],favorites:new Set(),recent:[],hls:null}
-const app=document.querySelector('#app')
-const esc=x=>String(x??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))
+const SUPABASE_URL = 'COLOQUE_SUA_URL_DO_SUPABASE'
+const SUPABASE_ANON_KEY = 'COLOQUE_SUA_ANON_KEY_DO_SUPABASE'
 
-function loginScreen(){
-app.innerHTML=`<div class="login"><div class="panel"><div class="brand">Stream<span>Play</span></div><h1>Player IPTV</h1><p class="muted">${online?'Entre na sua conta.':'Modo demonstração — configure o Supabase para contas reais.'}</p><input id="email" type="email" placeholder="E-mail"><input id="pass" type="password" placeholder="Senha (6+ caracteres)"><button id="enter" class="primary">${online?'Entrar':'Entrar em demonstração'}</button>${online?'<button id="signup" class="secondary">Criar conta</button>':''}<div class="note">Use somente playlists e streams que você tenha autorização para acessar.</div></div></div>`
-document.querySelector('#enter').onclick=auth
-document.querySelector('#signup')?.addEventListener('click',signup)
-}
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-async function auth(){
-let email=document.querySelector('#email').value.trim(),password=document.querySelector('#pass').value
-if(!email||password.length<6)return alert('Informe e-mail e senha com 6+ caracteres.')
-if(!online){s.user={email};start();return}
-let {data,error}=await db.auth.signInWithPassword({email,password})
-if(error)return alert(error.message)
-s.user=data.user
-start()
-}
+const app = document.getElementById('app')
 
-async function signup(){
-let email=document.querySelector('#email').value.trim(),password=document.querySelector('#pass').value
-if(!email||password.length<6)return alert('Informe e-mail e senha com 6+ caracteres.')
-let {error}=await db.auth.signUp({email,password})
-alert(error?error.message:'Conta criada. Verifique o e-mail se a confirmação estiver habilitada.')
-}
+app.innerHTML = `
+  <div class="app">
+    <h1>StreamPlay IPTV</h1>
+    <p>Carregando...</p>
+  </div>
+`
 
-async function logout(){
-if(online)await db.auth.signOut()
-s.user=null
-loginScreen()
-}
+async function loadData() {
+  const { data, error } = await supabase
+    .from('playlists')
+    .select('*')
 
-function shell(){
-app.innerHTML=`<header><div class="brand">Stream<span>Play</span></div><nav><button data-v="home">Início</button><button data-v="live">TV ao vivo</button><button data-v="fav">Favoritos</button><button data-v="lists">Playlists</button></nav><span class="grow"></span><span class="muted">${esc(s.user?.email||'Demonstração')}</span><button id="out" class="ghost">Sair</button></header><main><section id="home"></section><section id="live" class="hidden"></section><section id="fav" class="hidden"></section><section id="lists" class="hidden"></section></main>`
-document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>show(b.dataset.v))
-document.querySelector('#out').onclick=logout
-renderHome()
+  if (error) {
+    console.error(error)
+    app.innerHTML = `
+      <div class="app">
+        <h1>StreamPlay IPTV</h1>
+        <p>Erro ao carregar os dados.</p>
+      </div>
+    `
+    return
+  }
+
+  console.log('Playlists:', data)
+
+  app.innerHTML = `
+    <div class="app">
+      <h1>StreamPlay IPTV</h1>
+      <p>Aplicativo carregado com sucesso!</p>
+    </div>
+  `
 }
 
-function start(){shell();loadData()}
-
-function show(id){
-['home','live','fav','lists'].forEach(x=>document.querySelector('#'+x).classList.toggle('hidden',x!==id))
-if(id==='home')renderHome()
-if(id==='live')renderLive()
-if(id==='fav')renderFav()
-if(id==='lists')renderLists()
-}
-
-function renderHome(){
-document.querySelector('#home').innerHTML=`<div class="panel hero"><div><h1>Seu conteúdo, organizado.</h1><p class="muted">Importe sua playlist M3U e reproduza streams compatíveis.</p><button id="demo" class="primary">Testar demonstração</button> <button id="listsgo" class="secondary">Adicionar playlist</button></div><div class="stats"><div><b>${s.channels.length}</b><small>Canais</small></div><div><b>${new Set(s.channels.map(x=>x.group_name)).size}</b><small>Grupos</small></div><div><b>${s.favorites.size}</b><small>Favoritos</small></div></div></div><div class="panel"><h2>Continue assistindo</h2>${s.recent.length?cards(s.recent):'<div class="empty">Nada reproduzido ainda.</div>'}</div>`
-document.querySelector('#demo').onclick=()=>{s.channels=demo;show('live')}
-document.querySelector('#listsgo').onclick=()=>show('lists')
-bindCards()
-}
-
-function renderLive(){
-let groups=[...new Set(s.channels.map(x=>x.group_name||'Sem grupo'))].sort()
-document.querySelector('#live').innerHTML=`<div class="panel"><div class="toolbar"><input id="q" placeholder="Pesquisar canais"><select id="g"><option value="">Todos os grupos</option>${groups.map(x=>`<option>${esc(x)}</option>`).join('')}</select></div><div id="player" class="player hidden"><video id="video" controls playsinline></video><div><h2 id="now">—</h2><p id="status" class="muted"></p></div></div><div id="grid"></div></div>`
-q.oninput=renderGrid
-g.onchange=renderGrid
-renderGrid()
-}
-
-function renderGrid(){
-let q=(document.querySelector('#q')?.value||'').toLowerCase(),g=document.querySelector('#g')?.value||''
-document.querySelector('#grid').innerHTML=cards(s.channels.filter(c=>(!g||c.group_name===g)&&(!q||c.name.toLowerCase().includes(q))))
-bindCards()
-}
-
-function cards(a){
-if(!a.length)return '<div class="empty">Nenhum item encontrado.</div>'
-return `<div class="cards">${a.map(c=>`<article class="channel"><button class="star" data-star="${esc(c.id)}">${s.favorites.has(c.id)?'★':'☆'}</button><button class="channelmain" data-play="${esc(c.id)}"><div class="logo">${c.logo?`<img src="${esc(c.logo)}" onerror="this.remove()">`:'▶'}</div><b>${esc(c.name)}</b><small>${esc(c.group_name||'Sem grupo')}</small></button></article>`).join('')}</div>`
-}
-
-function bindCards(){
-document.querySelectorAll('[data-play]').forEach(b=>b.onclick=()=>play(b.dataset.play))
-document.querySelectorAll('[data-star]').forEach(b=>b.onclick=()=>fav(b.dataset.star))
-}
-
-function renderFav(){
-document.querySelector('#fav').innerHTML=`<div class="panel"><h2>⭐ Favoritos</h2>${cards(s.channels.filter(c=>s.favorites.has(c.id)))}</div>`
-bindCards()
-}
-
-function renderLists(){
-document.querySelector('#lists').innerHTML=`<div class="panel"><h2>Playlists</h2><p class="muted">Importe um arquivo M3U. A versão conectada salva playlists no Supabase.</p><input id="file" type="file" accept=".m3u,.m3u8,.txt"><button id="imp" class="primary">Importar</button><div class="note">Streams externos podem ser bloqueados por CORS, autenticação, expiração, DRM ou pelo servidor de origem.</div></div>`
-document.querySelector('#imp').onclick=importFile
-}
-
-function parse(text){
-let out=[],meta=null
-for(let l of text.replace(/^﻿/,'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean)){
-if(l.startsWith('#EXTINF')){
-let i=l.indexOf(','),name=i>=0?l.slice(i+1).trim():'Canal',m={name}
-for(let a of (l.match(/([\w-]+)="([^"]*)"/g)||[])){
-let z=a.match(/^([\w-]+)="(.*)"$/)
-m[z[1].toLowerCase()]=z[2]
-}
-meta={id:crypto.randomUUID(),name,group_name:m['group-title']||'Sem grupo',logo:m['tvg-logo']||''}
-}else if(!l.startsWith('#')&&meta){
-out.push({...meta,url:l})
-meta=null
-}
-}
-return out
-}
-
-async function importFile(){
-let f=document.querySelector('#file').files[0]
-if(!f)return alert('Escolha um arquivo M3U.')
-let a=parse(await f.text())
-if(!a.length)return alert('Nenhum item M3U válido.')
-s.channels=a
-alert(`${a.length} canais importados.`)
-show('live')
-if(online)await savePlaylist(f.name,a)
-}
-
-async function savePlaylist(name,a){
-let {data:p,error}=await db.from('playlists').insert({user_id:s.user.id,name}).select().single()
-if(error)return console.warn(error.message)
-let rows=a.map(c=>({playlist_id:p.id,name:c.name,url:c.url,group_name:c.group_name,logo:c.logo}))
-let {error:e}=await db.from('channels').insert(rows)
-if(e)console.warn(e.message)
-}
-
-function fav(id){
-s.favorites.has(id)?s.favorites.delete(id):s.favorites.add(id)
-renderFav()
-renderHome()
-}
-
-function play(id){
-let c=s.channels.find(x=>x.id===id)
-if(!c)return
-document.querySelector('#player')?.classList.remove('hidden')
-let v=document.querySelector('#video')
-document.querySelector('#now').textContent=c.name
-if(s.hls)s.hls.destroy()
-v.removeAttribute('src')
-if(c.url.includes('.m3u8')&&Hls.isSupported()){
-s.hls=new Hls()
-s.hls.loadSource(c.url)
-s.hls.attachMedia(v)
-s.hls.on(Hls.Events.MANIFEST_PARSED,()=>v.play().catch(()=>{}))
-s.hls.on(Hls.Events.ERROR,(_,d)=>{if(d.fatal)status.textContent='Stream indisponível ou bloqueado.'})
-}else{
-v.src=c.url
-v.play().catch(()=>{})
-}
-status.textContent='Reprodução iniciada.'
-s.recent=[c,...s.recent.filter(x=>x.id!==id)].slice(0,8)
-}
-
-async function loadData(){
-if(!online||!s.user)return
-let {data}=await db.from('playlists').select('id,name,channels(*)').eq('user_id',s.user.id)
-s.channels=(data||[]).flatMap(p=>(p.channels||[]).map(c=>({...c,playlist:p.name})))
-renderHome()
-}
-
-if(online){
-db.auth.getSession().then(({data})=>{
-s.user=data.session?.user||null
-s.user?start():loginScreen()
-})
-}else loginScreen()
+loadData()
